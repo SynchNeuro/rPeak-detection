@@ -1,0 +1,30 @@
+# Data files to ignore
+serial_*.txt
+OpenBCI*.txt
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Model files (optional - uncomment if you want to ignore large model files)
+*.pth
+*.pt
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

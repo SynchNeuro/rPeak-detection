@@ -1,0 +1,70 @@
+data:
+  file_pattern: "*.txt"
+  max_samples: 50000
+  train_ratio: 0.65
+  val_ratio: 0.15
+  test_ratio: 0.2
+  window_size: 125
+  sampling_rate: 250.0
+  eeg_lowcut: 1.0
+  eeg_highcut: 35.0
+  standardize: true
+
+model:
+  name: "improved"
+  input_size: 125
+  dropout_rate: 0.3
+  num_blocks: 4
+  base_channels: 32
+
+training:
+  batch_size: 64
+  epochs: 30
+  early_stopping_patience: 10
+  early_stopping_metric: "f1_score"
+  save_best_only: true
+  loss_name: "focal"
+  loss_params:
+    alpha: 0.25
+    gamma: 2.0
+  optimizer_name: "adam"
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  use_scheduler: true
+  scheduler_name: "reduce_on_plateau"
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+    verbose: true
+  use_balanced_sampler: true
+  use_class_weights: true
+
+evaluation:
+  threshold: 0.5
+  evaluation_thresholds:
+    - 0.3
+    - 0.4
+    - 0.5
+    - 0.6
+    - 0.7
+  find_optimal_threshold: true
+  optimize_for_metric: "f1_score"
+
+visualization:
+  create_plots: true
+  ecg_validation_duration: 30.0
+  prediction_results_duration: 20.0
+  plot_format: "png"
+  plot_dpi: 200
+
+output:
+  base_dir: "outputs"
+  models_dir: "outputs/models"
+  plots_dir: "outputs/plots"
+  logs_dir: "outputs/logs"
+  save_predictions: true
+  save_metrics: true
+
+seed: 42
+device: "auto"
+verbose: true

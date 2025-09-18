@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(git clone:*)",
+      "Bash(timeout 300 python3 rpeak_detection_timesnet.py)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(mv:*)",
+      "Bash(timeout 300 python rpeak_detection_timesnet_balanced.py)",
+      "Bash(timeout 300 python strategy1_strict_labeling.py)",
+      "Bash(timeout:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
