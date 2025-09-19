@@ -1,0 +1,36 @@
+{
+  "timestamp": "20250918_202612",
+  "model_config": {
+    "seq_len": 375,
+    "d_model": 64,
+    "d_ff": 128,
+    "e_layers": 2,
+    "dropout": 0.2,
+    "top_k": 4,
+    "num_kernels": 6,
+    "window_size_seconds": 3.0,
+    "sampling_rate": 125
+  },
+  "training_config": {
+    "epochs": 10,
+    "batch_size": 32,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0008,
+    "weight_decay": 0.001,
+    "scheduler": "CosineAnnealingWarmRestarts",
+    "scheduler_T_0": 5,
+    "scheduler_T_mult": 2
+  },
+  "loss_config": {
+    "type": "FocalLoss",
+    "alpha": 0.25,
+    "gamma": 2.0
+  },
+  "data_config": {
+    "train_positive_samples": 6615,
+    "train_negative_samples": 26460,
+    "validation_samples": 72754,
+    "validation_rpeaks": 568.0
+  },
+  "device": "cuda"
+}

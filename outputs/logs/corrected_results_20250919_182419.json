@@ -1,0 +1,38 @@
+{
+  "timestamp": "20250919_182419",
+  "config": {
+    "window_size": 63,
+    "max_negative_ratio": 20,
+    "min_negative_distance": 25,
+    "negative_stride": 15,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "epochs": 15,
+    "batch_size": 64
+  },
+  "data_splits": {
+    "train_samples": 8132,
+    "train_positive": 1326,
+    "holdout_samples": 1743,
+    "holdout_positive": 284,
+    "test_samples": 1743,
+    "test_positive": 284
+  },
+  "final_f1": 0.28439425051334705,
+  "final_precision": 0.16646634615384615,
+  "final_recall": 0.9753521126760564,
+  "final_specificity": 0.04934886908841672,
+  "optimal_threshold": 0.25000000000000006,
+  "confusion_matrix": [
+    [
+      72,
+      1387
+    ],
+    [
+      7,
+      277
+    ]
+  ],
+  "improvement_percent": 53.726621899106505,
+  "previous_best": 0.185
+}

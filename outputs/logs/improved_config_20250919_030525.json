@@ -1,0 +1,29 @@
+{
+  "timestamp": "20250919_030525",
+  "model_config": {
+    "architecture": "SimpleRPeakCNN",
+    "input_size": 63,
+    "input_channels": 2,
+    "window_size_seconds": 0.5,
+    "sampling_rate": 125
+  },
+  "training_config": {
+    "epochs": 20,
+    "batch_size": 64,
+    "optimizer": "AdamW",
+    "learning_rate": 0.001,
+    "weight_decay": 0.001
+  },
+  "preprocessing": {
+    "notch_filter": "60Hz",
+    "bandpass_filter": "0.5-45Hz",
+    "dual_channel": "raw + standardized"
+  },
+  "data_config": {
+    "train_positive_samples": 3977,
+    "train_negative_samples": 39770,
+    "validation_samples": 72754,
+    "validation_rpeaks": 568.0
+  },
+  "device": "cuda"
+}

@@ -1,0 +1,32 @@
+{
+  "timestamp": "20250919_152209",
+  "config": {
+    "window_size": 63,
+    "negative_ratio": 4,
+    "min_negative_distance": 30,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "epochs": 15,
+    "batch_size": 64
+  },
+  "best_f1": 0.5264035575319622,
+  "final_analysis": {
+    "precision": 0.35722368917389663,
+    "recall": 1.0,
+    "f1": 0.5264035575319622,
+    "specificity": 0.0005865102639296188,
+    "best_threshold": 0.3,
+    "confusion_matrix": [
+      [
+        2,
+        3408
+      ],
+      [
+        0,
+        1894
+      ]
+    ]
+  },
+  "improvement_percent": 184.5424635307904,
+  "previous_best": 0.185
+}

@@ -1,0 +1,1 @@
+epoch,train_loss,train_precision,train_recall,train_f1,train_accuracy,val_loss,val_precision,val_recall,val_f1,val_accuracy,optimal_threshold,learning_rate,epoch_time

@@ -97,15 +97,15 @@ class EnhancedTimesNetConfig:
         self.pred_len = 0
         self.enc_in = 1         # Single EEG channel
         self.c_out = 1          # Single output channel
-        self.d_model = 128      # INCREASED: More capacity for longer sequences
-        self.d_ff = 256         # INCREASED: More capacity for complex patterns
+        self.d_model = 64       # REDUCED: Simpler model for testing
+        self.d_ff = 128         # REDUCED: Simpler feedforward
         self.num_class = 2      # Binary classification
-        self.e_layers = 3       # INCREASED: More layers for temporal dependencies
+        self.e_layers = 2       # REDUCED: Fewer layers for faster training
         self.embed = 'timeF'
         self.freq = 'h'
-        self.dropout = 0.3      # INCREASED: More regularization for larger model
-        self.top_k = 8          # INCREASED: More frequency components for 3-sec windows
-        self.num_kernels = 12   # INCREASED: More temporal kernels for complex patterns
+        self.dropout = 0.2      # REDUCED: Less dropout
+        self.top_k = 4          # REDUCED: Fewer frequency components
+        self.num_kernels = 6    # REDUCED: Fewer temporal kernels
 
 class BalancedECGEEGDataset(Dataset):
     """
@@ -303,7 +303,7 @@ def create_enhanced_training_samples(eeg_data, rpeak_binary, window_size=375, ne
     KEY IMPROVEMENTS:
     - 375-sample windows (3 seconds at 125Hz) capture multiple heartbeats
     - 36ms minimum distance for negative samples
-    - 10:1 negative:positive ratio for realistic training
+    - 4:1 negative:positive ratio for better balance
     """
     print("Creating enhanced training samples with 3-second windows at 125Hz...")
 
@@ -415,11 +415,11 @@ def train_enhanced_timesnet(train_positive, train_negative, eeg_val, rpeaks_val,
 
     # Create balanced training dataset
     train_dataset = BalancedECGEEGDataset(train_positive, train_negative)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
-    # Create NON-OVERLAPPING validation dataset
-    val_dataset = NonOverlappingWindowDataset(eeg_val, rpeaks_val)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+    # Create SLIDING WINDOW validation dataset (stride=5)
+    val_dataset = SlidingWindowDataset(eeg_val, rpeaks_val, stride=5)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
@@ -428,8 +428,20 @@ def train_enhanced_timesnet(train_positive, train_negative, eeg_val, rpeaks_val,
     config = EnhancedTimesNetConfig()
     model = TimesNetModel(config).to(device)
 
-    # WINNING COMPONENT: Focal Loss instead of standard CrossEntropyLoss
-    criterion = FocalLoss(alpha=0.25, gamma=2.0)
+    # Calculate class weights based on training data distribution
+    num_positive = len(train_positive)
+    num_negative = len(train_negative)
+    total_samples = num_positive + num_negative
+
+    # Inverse frequency weighting
+    weight_negative = total_samples / (2 * num_negative)  # Class 0 (negative)
+    weight_positive = total_samples / (2 * num_positive)  # Class 1 (positive)
+    class_weights = torch.tensor([weight_negative, weight_positive], dtype=torch.float32).to(device)
+
+    print(f"Class weights - Negative: {weight_negative:.4f}, Positive: {weight_positive:.4f}")
+
+    # Use standard CrossEntropyLoss with class weights
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = optim.AdamW(model.parameters(), lr=0.0008, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
 
@@ -458,9 +470,9 @@ def train_enhanced_timesnet(train_positive, train_negative, eeg_val, rpeaks_val,
             'scheduler_T_mult': 2
         },
         'loss_config': {
-            'type': 'FocalLoss',
-            'alpha': 0.25,
-            'gamma': 2.0
+            'type': 'CrossEntropyLoss',
+            'weight_negative': weight_negative,
+            'weight_positive': weight_positive
         },
         'data_config': {
             'train_positive_samples': len(train_positive),
@@ -523,7 +535,7 @@ def train_enhanced_timesnet(train_positive, train_negative, eeg_val, rpeaks_val,
         val_scores, val_targets = [], []
 
         with torch.no_grad():
-            for data, time_marks, target in val_loader:
+            for data, time_marks, target, _ in val_loader:
                 data, time_marks, target = data.to(device), time_marks.to(device), target.to(device).squeeze()
 
                 logits = model(data, time_marks, None, None)
@@ -583,43 +595,36 @@ def train_enhanced_timesnet(train_positive, train_negative, eeg_val, rpeaks_val,
             print(f"Early stopping at epoch {epoch}")
             break
 
-    # Load best model
+    # Load best model (skip if doesn't exist or architecture mismatch)
     if os.path.exists('outputs/models/best_rpeak_detection_model.pth'):
-        checkpoint = torch.load('outputs/models/best_rpeak_detection_model.pth', weights_only=False)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimal_threshold = checkpoint['optimal_threshold']
-        print(f"\nLoaded best model with optimal threshold: {optimal_threshold:.2f}")
+        try:
+            checkpoint = torch.load('outputs/models/best_rpeak_detection_model.pth', weights_only=False)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimal_threshold = checkpoint['optimal_threshold']
+            print(f"\nLoaded best model with optimal threshold: {optimal_threshold:.2f}")
+        except Exception as e:
+            print(f"\nCould not load checkpoint (architecture mismatch): {e}")
+            print("Using newly trained model instead.")
 
     return model, optimal_threshold
 
-def detect_peaks_from_probabilities(probabilities, center_indices, threshold=0.5, min_distance=50):
+def detect_rpeaks_from_argmax_classification(logits, center_indices):
     """
-    Detect R-peaks from probability signal using peak detection
+    Use model's learned decision boundary - no manual threshold needed!
 
     Args:
-        probabilities: Probability scores for each window center
+        logits: Raw model outputs [batch_size, 2] for each window
         center_indices: Corresponding time indices for each window center
-        threshold: Minimum probability threshold
-        min_distance: Minimum distance between peaks (samples)
 
     Returns:
-        detected_peak_indices: Time indices of detected R-peaks
+        detected_rpeak_indices: Time indices of detected R-peaks
     """
-    from scipy import signal as scipy_signal
+    # Use model's learned decision boundary via argmax
+    predictions = torch.argmax(logits, dim=1)  # 0 or 1 directly
+    detected_mask = predictions == 1  # R-peak class
+    detected_rpeak_indices = center_indices[detected_mask.cpu().numpy()]
 
-    # Apply threshold
-    thresholded = probabilities >= threshold
-
-    if not np.any(thresholded):
-        return np.array([])
-
-    # Find peaks with minimum distance constraint
-    peaks, _ = scipy_signal.find_peaks(probabilities, height=threshold, distance=min_distance)
-
-    # Convert peak indices to time indices
-    detected_peak_indices = center_indices[peaks]
-
-    return detected_peak_indices
+    return detected_rpeak_indices
 
 def compute_heart_rate(rpeak_indices, sampling_rate=125, window_duration=30):
     """
@@ -660,15 +665,15 @@ def evaluate_enhanced_model_with_hr(model, eeg_val, rpeaks_val, optimal_threshol
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.eval()
 
-    # Step 1: Traditional non-overlapping validation
-    val_dataset = NonOverlappingWindowDataset(eeg_val, rpeaks_val)
-    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=2)
+    # Step 1: Sliding window validation (stride=5)
+    val_dataset = SlidingWindowDataset(eeg_val, rpeaks_val, stride=5)
+    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=0)
 
     prediction_scores = []
     true_labels = []
 
     with torch.no_grad():
-        for data, time_marks, target in val_loader:
+        for data, time_marks, target, _ in val_loader:
             data, time_marks = data.to(device), time_marks.to(device)
 
             logits = model(data, time_marks, None, None)
@@ -686,7 +691,7 @@ def evaluate_enhanced_model_with_hr(model, eeg_val, rpeaks_val, optimal_threshol
     sliding_dataset = SlidingWindowDataset(eeg_val, rpeaks_val, stride=5)
     sliding_loader = DataLoader(sliding_dataset, batch_size=256, shuffle=False, num_workers=2)
 
-    sliding_probabilities = []
+    sliding_logits = []
     sliding_centers = []
 
     with torch.no_grad():
@@ -694,18 +699,16 @@ def evaluate_enhanced_model_with_hr(model, eeg_val, rpeaks_val, optimal_threshol
             data, time_marks = data.to(device), time_marks.to(device)
 
             logits = model(data, time_marks, None, None)
-            pred_probs = torch.softmax(logits, dim=1)[:, 1]
 
-            sliding_probabilities.extend(pred_probs.cpu().numpy())
+            sliding_logits.append(logits.cpu())
             sliding_centers.extend(center_idx.numpy())
 
-    sliding_probabilities = np.array(sliding_probabilities)
+    sliding_logits = torch.cat(sliding_logits, dim=0)
     sliding_centers = np.array(sliding_centers)
 
-    # Detect R-peaks from EEG predictions
-    predicted_rpeaks = detect_peaks_from_probabilities(
-        sliding_probabilities, sliding_centers,
-        threshold=optimal_threshold, min_distance=25  # 200ms minimum at 125Hz
+    # Detect R-peaks using model's learned decision boundary (no manual threshold!)
+    predicted_rpeaks = detect_rpeaks_from_argmax_classification(
+        sliding_logits, sliding_centers
     )
 
     # Get ground truth R-peaks in validation set
@@ -718,7 +721,7 @@ def evaluate_enhanced_model_with_hr(model, eeg_val, rpeaks_val, optimal_threshol
     # Print results
     print(f"\n=== BEST METHOD FINAL RESULTS ===")
     print(f"Validation windows: {len(true_labels)} (non-overlapping)")
-    print(f"Sliding windows: {len(sliding_probabilities)} (5-sample stride)")
+    print(f"Sliding windows: {len(sliding_logits)} (5-sample stride)")
 
     # Traditional metrics
     precision, recall, f1, _ = precision_recall_fscore_support(true_labels, predictions_thresh, average='binary', zero_division=0)
@@ -728,10 +731,16 @@ def evaluate_enhanced_model_with_hr(model, eeg_val, rpeaks_val, optimal_threshol
     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
 
     print(f"\n🏆 TRADITIONAL VALIDATION METRICS:")
-    print(f"Accuracy:     {accuracy:.4f} ({accuracy*100:.1f}%)")
-    print(f"Precision:    {precision:.4f} ({precision*100:.1f}%)")
-    print(f"Recall:       {recall:.4f} ({recall*100:.1f}%)")
+    print(f"Accuracy:     {accuracy:.4f} ({accuracy*100:.1f}%) = {tn+tp}/{tn+tp+fn+fp}")
+    print(f"Precision:    {precision:.4f} ({precision*100:.1f}%) = {tp}/{tp+fp}")
+    print(f"Recall:       {recall:.4f} ({recall*100:.1f}%) = {tp}/{tp+fn}")
+    print(f"Specificity:  {specificity:.4f} ({specificity*100:.1f}%) = {tn}/{tn+fp}")
     print(f"F1-Score:     {f1:.4f} ({f1*100:.1f}%)")
+    print(f"\n📊 CONFUSION MATRIX:")
+    print(f"True Positives (TP):  {tp}")
+    print(f"False Positives (FP): {fp}")
+    print(f"True Negatives (TN):  {tn}")
+    print(f"False Negatives (FN): {fn}")
 
     # HR comparison
     print(f"\n💓 HEART RATE COMPARISON:")
@@ -779,11 +788,71 @@ def main():
     # Prepare enhanced balanced data
     train_positive, train_negative, eeg_val, rpeaks_val, scaler = prepare_balanced_data(all_eeg, all_rpeaks)
 
-    # Train enhanced model with all improvements
-    model, optimal_threshold = train_enhanced_timesnet(train_positive, train_negative, eeg_val, rpeaks_val)
+    # Train enhanced model with all improvements (10 epochs, smaller batch size)
+    model, optimal_threshold = train_enhanced_timesnet(train_positive, train_negative, eeg_val, rpeaks_val, epochs=10, batch_size=32)
 
     # Final evaluation with HR comparison
     results = evaluate_enhanced_model_with_hr(model, eeg_val, rpeaks_val, optimal_threshold)
+
+    # Add visualization
+    print(f"\n📊 Generating training curves visualization...")
+    try:
+        import matplotlib.pyplot as plt
+
+        # Read training log for visualization
+        log_files = sorted([f for f in os.listdir('outputs/logs') if f.startswith('training_log_') and f.endswith('.csv')])
+        if log_files:
+            latest_log = os.path.join('outputs/logs', log_files[-1])
+            import pandas as pd
+            df = pd.read_csv(latest_log)
+
+            # Create training curves plot
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+
+            epochs = df['epoch']
+
+            # Loss curves
+            ax1.plot(epochs, df['train_loss'], 'b-', label='Training Loss', linewidth=2)
+            ax1.plot(epochs, df['val_loss'], 'r-', label='Validation Loss', linewidth=2)
+            ax1.set_title('Loss Curves')
+            ax1.set_xlabel('Epoch')
+            ax1.set_ylabel('Loss')
+            ax1.legend()
+            ax1.grid(True)
+
+            # F1 Score
+            ax2.plot(epochs, df['train_f1'], 'b-', label='Training F1', linewidth=2)
+            ax2.plot(epochs, df['val_f1'], 'r-', label='Validation F1', linewidth=2)
+            ax2.set_title('F1 Score Curves')
+            ax2.set_xlabel('Epoch')
+            ax2.set_ylabel('F1 Score')
+            ax2.legend()
+            ax2.grid(True)
+
+            # Precision curves
+            ax3.plot(epochs, df['train_precision'], 'b-', label='Training Precision', linewidth=2)
+            ax3.plot(epochs, df['val_precision'], 'r-', label='Validation Precision', linewidth=2)
+            ax3.set_title('Precision Curves')
+            ax3.set_xlabel('Epoch')
+            ax3.set_ylabel('Precision')
+            ax3.legend()
+            ax3.grid(True)
+
+            # Recall curves
+            ax4.plot(epochs, df['train_recall'], 'b-', label='Training Recall', linewidth=2)
+            ax4.plot(epochs, df['val_recall'], 'r-', label='Validation Recall', linewidth=2)
+            ax4.set_title('Recall Curves')
+            ax4.set_xlabel('Epoch')
+            ax4.set_ylabel('Recall')
+            ax4.legend()
+            ax4.grid(True)
+
+            plt.tight_layout()
+            plt.savefig('outputs/plots/training_curves_binary_classification.png', dpi=300, bbox_inches='tight')
+            print(f"📈 Training curves saved: outputs/plots/training_curves_binary_classification.png")
+            plt.close()
+    except Exception as e:
+        print(f"⚠️ Could not generate visualization: {e}")
 
     print(f"\n🎉 SUCCESS: Best method completed!")
     print(f"📁 Model saved: outputs/models/best_rpeak_detection_model.pth")

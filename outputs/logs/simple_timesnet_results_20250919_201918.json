@@ -1,0 +1,39 @@
+{
+  "timestamp": "20250919_201918",
+  "model_type": "simple_timesnet",
+  "config": {
+    "window_size": 63,
+    "max_negative_ratio": 20,
+    "min_negative_distance": 25,
+    "negative_stride": 15,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "epochs": 25,
+    "batch_size": 64
+  },
+  "data_splits": {
+    "train_samples": 8132,
+    "train_positive": 1326,
+    "holdout_samples": 1743,
+    "holdout_positive": 284,
+    "test_samples": 1743,
+    "test_positive": 284
+  },
+  "final_f1": 0.0,
+  "final_precision": 0.0,
+  "final_recall": 0.0,
+  "final_specificity": 1.0,
+  "optimal_threshold": 0.5,
+  "confusion_matrix": [
+    [
+      1459,
+      0
+    ],
+    [
+      284,
+      0
+    ]
+  ],
+  "improvement_vs_classification": -100.0,
+  "classification_best": 0.284
+}

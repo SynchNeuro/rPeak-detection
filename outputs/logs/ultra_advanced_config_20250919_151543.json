@@ -1,0 +1,16 @@
+{
+  "window_size": 125,
+  "stride": 3,
+  "negative_ratio": 8,
+  "label_tolerance": 3,
+  "min_negative_distance": 20,
+  "learning_rate": 0.0005,
+  "weight_decay": 0.001,
+  "epochs": 25,
+  "batch_size": 32,
+  "timestamp": "20250919_151543",
+  "final_f1": 0.0,
+  "best_threshold": 0.5,
+  "train_positive_samples": 4419,
+  "train_negative_samples": 35352
+}

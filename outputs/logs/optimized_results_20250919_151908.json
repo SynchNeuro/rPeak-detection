@@ -1,0 +1,23 @@
+{
+  "timestamp": "20250919_151908",
+  "config": {
+    "window_size": 63,
+    "label_tolerance": 2,
+    "negative_ratio": 5,
+    "min_negative_distance": 25,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "epochs": 20,
+    "batch_size": 64
+  },
+  "best_f1": 0.0,
+  "final_metrics": {
+    "f1": 0.0,
+    "precision": 0.0,
+    "recall": 0.0,
+    "threshold": 0.5
+  },
+  "improvement_over_previous": -100.0,
+  "train_positive_samples": 9470,
+  "train_negative_samples": 29930
+}
