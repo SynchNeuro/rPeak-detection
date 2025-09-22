@@ -1,0 +1,28 @@
+{
+  "timestamp": "20250922_194445",
+  "config": {
+    "segment_length": 250,
+    "stride": 125,
+    "gaussian_sigma": 5,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "epochs": 20,
+    "batch_size": 16
+  },
+  "data_path": "/home/heonsoo/records/0911_ecg_2/OpenBCI-RAW-2025-09-21_20-32-21__1.txt",
+  "best_val_loss": 0.06068816108872061,
+  "avg_precision": 0.14956079519186313,
+  "avg_recall": 0.11488673139158576,
+  "avg_f1": 0.12376329172445677,
+  "num_validation_segments_with_peaks": 721,
+  "total_validation_segments": 721,
+  "segments_with_rpeaks": 721,
+  "mean_validation_overlap": 1.997229916897507,
+  "approach": "U-Net sequence-to-sequence",
+  "optimized_peak_height": 0.10006252266466617,
+  "optimized_peak_distance": 26,
+  "optimized_peak_prominence": 0.0,
+  "full_signal_precision": 0.1560379918588874,
+  "full_signal_recall": 0.32167832167832167,
+  "full_signal_f1": 0.21014161717679306
+}

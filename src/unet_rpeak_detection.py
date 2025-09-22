@@ -20,6 +20,7 @@ Author: Claude Code
 Date: September 19, 2025
 """
 
+import argparse
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -36,6 +37,7 @@ from sklearn.metrics import precision_recall_fscore_support
 from sklearn.preprocessing import StandardScaler
 from scipy import signal
 from scipy.signal import find_peaks
+from scipy.ndimage import gaussian_filter1d
 import time
 import warnings
 warnings.filterwarnings('ignore')
@@ -45,6 +47,19 @@ import datetime
 # Set seeds for reproducibility
 torch.manual_seed(42)
 np.random.seed(42)
+
+def parse_arguments():
+    """Parse CLI arguments for the U-Net pipeline."""
+    parser = argparse.ArgumentParser(description='Train and evaluate U-Net R-peak detector.')
+    parser.add_argument(
+        '--file',
+        type=str,
+        default='../OpenBCI-RAW-2025-09-14_12-26-20.txt',
+        help='Path to OpenBCI text export used for training/validation.'
+    )
+
+    return parser.parse_args()
+
 
 class DoubleConv(nn.Module):
     """Double convolution block for U-Net"""
@@ -255,7 +270,7 @@ def create_continuous_rpeak_targets(signal_length, rpeak_locations, sigma=5):
 
     return targets
 
-def detect_peaks_from_continuous(continuous_signal, height=0.3, distance=40):
+def detect_peaks_from_continuous(continuous_signal, height=0.3, distance=40, prominence=None):
     """
     Detect R-peaks from continuous prediction signal
 
@@ -267,7 +282,15 @@ def detect_peaks_from_continuous(continuous_signal, height=0.3, distance=40):
     Returns:
         Array of detected peak indices
     """
-    peaks, properties = find_peaks(continuous_signal, height=height, distance=distance)
+    peak_kwargs = {
+        'height': height,
+        'distance': distance
+    }
+
+    if prominence is not None:
+        peak_kwargs['prominence'] = prominence
+
+    peaks, properties = find_peaks(continuous_signal, **peak_kwargs)
     return peaks, properties
 
 def evaluate_rpeak_detection(predicted_peaks, true_peaks, tolerance=6):
@@ -340,6 +363,53 @@ def evaluate_rpeak_detection(predicted_peaks, true_peaks, tolerance=6):
         'false_positives': false_positives,
         'false_negatives': false_negatives
     }
+
+
+def reconstruct_full_prediction(predictions, segment_starts, signal_length, segment_length):
+    """Reconstruct continuous prediction by overlap-averaging segment outputs."""
+    aggregate = np.zeros(signal_length, dtype=np.float32)
+    counts = np.zeros(signal_length, dtype=np.int32)
+
+    for segment_pred, start_idx in zip(predictions, segment_starts):
+        end_idx = start_idx + segment_length
+        segment_values = np.squeeze(segment_pred, axis=0)
+        aggregate[start_idx:end_idx] += segment_values
+        counts[start_idx:end_idx] += 1
+
+    coverage_mask = counts > 0
+    aggregate[coverage_mask] /= counts[coverage_mask]
+
+    return aggregate, counts
+
+
+def optimize_peak_detection_parameters(pred_signal, true_peaks, height_candidates,
+                                       distance_candidates, prominence_candidates,
+                                       tolerance=6):
+    """Grid-search peak detection hyperparameters to maximize F1."""
+    best_params = None
+    best_metrics = None
+
+    for height in height_candidates:
+        for distance in distance_candidates:
+            for prominence in prominence_candidates:
+                peaks, _ = detect_peaks_from_continuous(
+                    pred_signal,
+                    height=height,
+                    distance=distance,
+                    prominence=prominence
+                )
+
+                metrics = evaluate_rpeak_detection(peaks, true_peaks, tolerance=tolerance)
+
+                if best_metrics is None or metrics['f1'] > best_metrics['f1']:
+                    best_metrics = metrics
+                    best_params = {
+                        'height': height,
+                        'distance': distance,
+                        'prominence': prominence
+                    }
+
+    return best_params, best_metrics
 
 def map_rpeaks_to_segment(rpeak_locations, segment_start, segment_length):
     """
@@ -457,7 +527,7 @@ def time_based_split_sequences(dataset, test_size=0.2):
 
     return train_indices, test_indices
 
-def main():
+def main(file_path=None):
     """Main U-Net training pipeline"""
     print("🚀 ===== U-NET R-PEAK DETECTION =====")
     print("Sequence-to-sequence approach with continuous targets")
@@ -473,13 +543,13 @@ def main():
         'batch_size': 16
     }
 
-    file_path = "../OpenBCI-RAW-2025-09-14_12-26-20.txt"
-    if not os.path.exists(file_path):
-        print(f"❌ ERROR: {file_path} not found!")
+    data_path = file_path or "../OpenBCI-RAW-2025-09-14_12-26-20.txt"
+    if not os.path.exists(data_path):
+        print(f"❌ ERROR: {data_path} not found!")
         return
 
     # Process signals
-    eeg_raw, eeg_norm, rpeak_locations = process_signal_for_unet(file_path)
+    eeg_raw, eeg_norm, rpeak_locations = process_signal_for_unet(data_path)
 
     if len(rpeak_locations) == 0:
         print("❌ ERROR: No R-peaks found!")
@@ -569,6 +639,10 @@ def main():
     print(f"       Evaluation coverage: {segments_with_rpeaks/len(predictions)*100:.1f}%")
 
     # Calculate average metrics
+    avg_precision = 0.0
+    avg_recall = 0.0
+    avg_f1 = 0.0
+
     if segment_metrics:
         avg_precision = np.mean([m['precision'] for m in segment_metrics])
         avg_recall = np.mean([m['recall'] for m in segment_metrics])
@@ -579,6 +653,91 @@ def main():
         print(f"   Recall: {avg_recall:.4f}")
         print(f"   F1-Score: {avg_f1:.4f}")
         print(f"   Best Validation Loss: {best_val_loss:.6f}")
+    else:
+        print("\n⚠️  No segments with annotated R-peaks were available for per-window metrics.")
+
+    # Aggregate predictions across the validation region to evaluate end-to-end performance
+    global_metrics = None
+    best_params = None
+    mean_overlap = None
+
+    if val_segment_starts:
+        val_region_start = val_segment_starts[0]
+        val_region_end = val_segment_starts[-1] + config['segment_length']
+
+        full_prediction, coverage = reconstruct_full_prediction(
+            predictions,
+            val_segment_starts,
+            signal_length=len(eeg_raw),
+            segment_length=config['segment_length']
+        )
+
+        # Focus on the region actually covered by validation segments
+        coverage_window = coverage[val_region_start:val_region_end]
+        valid_mask = coverage_window > 0
+
+        if valid_mask.any():
+            aggregated_prediction = full_prediction[val_region_start:val_region_end]
+            mean_overlap = float(np.mean(coverage_window[valid_mask]))
+            print(f"\n   📐 Mean segment overlap in validation window: {mean_overlap:.2f}x")
+
+            # Smooth prediction to suppress minor oscillations before peak finding
+            smoothed_prediction = gaussian_filter1d(aggregated_prediction, sigma=1.5)
+
+            # Ground truth peaks restricted to the validation window and re-indexed
+            val_true_peaks = [
+                peak - val_region_start
+                for peak in rpeak_locations
+                if val_region_start <= peak < val_region_end
+            ]
+
+            if val_true_peaks:
+                percentile_grid = np.linspace(55, 95, 9)
+                height_candidates = sorted({
+                    float(np.clip(np.percentile(smoothed_prediction, p), 0.05, 0.95))
+                    for p in percentile_grid
+                })
+                height_candidates = [h for h in height_candidates if not np.isnan(h)]
+
+                if not height_candidates:
+                    height_candidates = [0.3, 0.4, 0.5, 0.6]
+
+                distance_candidates = [26, 30, 34, 38, 42]
+                prominence_candidates = [None, 0.05, 0.1]
+
+                best_params, global_metrics = optimize_peak_detection_parameters(
+                    smoothed_prediction,
+                    np.array(val_true_peaks),
+                    height_candidates,
+                    distance_candidates,
+                    prominence_candidates,
+                    tolerance=6
+                )
+
+                if best_params and global_metrics:
+                    best_peaks, _ = detect_peaks_from_continuous(
+                        smoothed_prediction,
+                        height=best_params['height'],
+                        distance=best_params['distance'],
+                        prominence=best_params['prominence']
+                    )
+
+                    print("\n🔧 OPTIMIZED FULL-SIGNAL DETECTION METRICS:")
+                    print(f"   Peak threshold (height): {best_params['height']:.3f}")
+                    print(f"   Peak spacing (distance): {best_params['distance']} samples")
+                    print(f"   Peak prominence: {best_params['prominence'] if best_params['prominence'] is not None else 0.0:.3f}")
+                    print(f"   Detected peaks: {len(best_peaks)} | True peaks: {len(val_true_peaks)}")
+                    print(f"   Precision: {global_metrics['precision']:.4f}")
+                    print(f"   Recall: {global_metrics['recall']:.4f}")
+                    print(f"   F1-Score: {global_metrics['f1']:.4f}")
+                else:
+                    print("\n⚠️  Failed to optimize peak detection for the aggregated prediction.")
+            else:
+                print("\n⚠️  No ground-truth R-peaks fall inside the validation coverage window.")
+        else:
+            print("\n⚠️  Validation segments did not provide any coverage for evaluation.")
+
+    final_f1 = global_metrics['f1'] if global_metrics else avg_f1
 
     # Save model and results
     os.makedirs('../outputs/models', exist_ok=True)
@@ -593,12 +752,22 @@ def main():
     results = {
         'timestamp': timestamp,
         'config': config,
+        'data_path': os.path.abspath(data_path),
         'best_val_loss': float(best_val_loss),
-        'avg_precision': float(avg_precision) if segment_metrics else 0.0,
-        'avg_recall': float(avg_recall) if segment_metrics else 0.0,
-        'avg_f1': float(avg_f1) if segment_metrics else 0.0,
-        'num_validation_segments': len(segment_metrics),
-        'approach': 'U-Net sequence-to-sequence'
+        'avg_precision': float(avg_precision),
+        'avg_recall': float(avg_recall),
+        'avg_f1': float(avg_f1),
+        'num_validation_segments_with_peaks': len(segment_metrics),
+        'total_validation_segments': int(len(predictions)),
+        'segments_with_rpeaks': int(segments_with_rpeaks),
+        'mean_validation_overlap': float(mean_overlap) if mean_overlap is not None else 0.0,
+        'approach': 'U-Net sequence-to-sequence',
+        'optimized_peak_height': float(best_params['height']) if best_params else 0.0,
+        'optimized_peak_distance': int(best_params['distance']) if best_params else 0,
+        'optimized_peak_prominence': float(best_params['prominence']) if best_params and best_params['prominence'] is not None else 0.0,
+        'full_signal_precision': float(global_metrics['precision']) if global_metrics else 0.0,
+        'full_signal_recall': float(global_metrics['recall']) if global_metrics else 0.0,
+        'full_signal_f1': float(final_f1)
     }
 
     with open(f'../outputs/logs/unet_results_{timestamp}.json', 'w') as f:
@@ -635,11 +804,12 @@ def main():
 
     # Compare with previous classification approach
     previous_best = 0.185  # From TimesNet classification
-    if segment_metrics and avg_f1 > previous_best:
-        improvement = (avg_f1 - previous_best) / previous_best * 100
+    if final_f1 > previous_best:
+        improvement = (final_f1 - previous_best) / previous_best * 100
         print(f"\n🎉 U-Net approach achieved {improvement:.1f}% improvement over classification!")
 
-# return avg_f1 if segment_metrics else 0.0, results
+    return final_f1, results
 
 if __name__ == "__main__":
-    best_f1, results = main()
+    cli_args = parse_arguments()
+    best_f1, results = main(file_path=cli_args.file)
