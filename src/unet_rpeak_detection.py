@@ -473,7 +473,7 @@ def main():
         'batch_size': 16
     }
 
-    file_path = "OpenBCI-RAW-2025-09-14_12-26-20.txt"
+    file_path = "../OpenBCI-RAW-2025-09-14_12-26-20.txt"
     if not os.path.exists(file_path):
         print(f"❌ ERROR: {file_path} not found!")
         return
@@ -581,13 +581,13 @@ def main():
         print(f"   Best Validation Loss: {best_val_loss:.6f}")
 
     # Save model and results
-    os.makedirs('outputs/models', exist_ok=True)
-    os.makedirs('outputs/logs', exist_ok=True)
+    os.makedirs('../outputs/models', exist_ok=True)
+    os.makedirs('../outputs/logs', exist_ok=True)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Save model
-    torch.save(model.state_dict(), f'outputs/models/unet_rpeak_model_{timestamp}.pth')
+    torch.save(model.state_dict(), f'../outputs/models/unet_rpeak_model_{timestamp}.pth')
 
     # Save results
     results = {
@@ -601,7 +601,7 @@ def main():
         'approach': 'U-Net sequence-to-sequence'
     }
 
-    with open(f'outputs/logs/unet_results_{timestamp}.json', 'w') as f:
+    with open(f'../outputs/logs/unet_results_{timestamp}.json', 'w') as f:
         json.dump(results, f, indent=2)
 
     # Create training curves plot
@@ -626,12 +626,12 @@ def main():
         plt.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(f'outputs/plots/unet_training_analysis_{timestamp}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'../outputs/plots/unet_training_analysis_{timestamp}.png', dpi=300, bbox_inches='tight')
     plt.close()
 
-    print(f"\n💾 Model saved to outputs/models/unet_rpeak_model_{timestamp}.pth")
-    print(f"📄 Results saved to outputs/logs/unet_results_{timestamp}.json")
-    print(f"📊 Training curves saved to outputs/plots/unet_training_analysis_{timestamp}.png")
+    print(f"\n💾 Model saved to ../outputs/models/unet_rpeak_model_{timestamp}.pth")
+    print(f"📄 Results saved to ../outputs/logs/unet_results_{timestamp}.json")
+    print(f"📊 Training curves saved to ../outputs/plots/unet_training_analysis_{timestamp}.png")
 
     # Compare with previous classification approach
     previous_best = 0.185  # From TimesNet classification
@@ -639,7 +639,7 @@ def main():
         improvement = (avg_f1 - previous_best) / previous_best * 100
         print(f"\n🎉 U-Net approach achieved {improvement:.1f}% improvement over classification!")
 
-    return avg_f1 if segment_metrics else 0.0, results
+# return avg_f1 if segment_metrics else 0.0, results
 
 if __name__ == "__main__":
     best_f1, results = main()

@@ -1,0 +1,18 @@
+{
+  "timestamp": "20250922_181252",
+  "config": {
+    "segment_length": 250,
+    "stride": 125,
+    "gaussian_sigma": 5,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "epochs": 20,
+    "batch_size": 16
+  },
+  "best_val_loss": 0.0291597518324852,
+  "avg_precision": 0.6527061855670104,
+  "avg_recall": 0.6288659793814433,
+  "avg_f1": 0.6262150220913107,
+  "num_validation_segments": 388,
+  "approach": "U-Net sequence-to-sequence"
+}
